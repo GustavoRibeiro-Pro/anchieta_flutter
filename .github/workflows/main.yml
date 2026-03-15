@@ -1,0 +1,69 @@
+name: Flutter Unit Tests Summary (Local Runner)
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-summary:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout Aluno
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: aluno_code
+
+      - name: Checkout Testes Oficiais
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: oficial_code
+
+      - name: Restaurar Testes Oficiais
+        run: |
+          # Remove os testes que o aluno pode ter alterado e copia os originais
+          rm -rf aluno_code/test
+          cp -r oficial_code/test aluno_code/test
+
+      - name: Install Dependencies
+        working-directory: ./aluno_code
+        run: flutter pub get
+
+      - name: Run Tests
+        working-directory: ./aluno_code
+        run: |
+          # O || true evita que o pipeline pare antes de gerar o resumo
+          flutter test --machine > machine_results.json || true
+
+      - name: Show Summary
+        working-directory: ./aluno_code
+        run: |
+          # 1. Filtra as linhas que indicam conclusão de um teste
+          grep '"type":"testDone"' machine_results.json > filtered.txt || true
+
+          # 2. Conta os resultados usando a estrutura do seu script original
+          PASSED=$(grep -c '"result":"success"' filtered.txt || echo "0")
+          FAILED=$(grep -c '"result":"failure"' filtered.txt || echo "0")
+          ERRORS=$(grep -c '"result":"error"' filtered.txt || echo "0")
+
+          # 3. Cálculos de total e reprovações
+          REPROVADOS=$(expr $FAILED + $ERRORS)
+          TOTAL=$(expr $PASSED + $REPROVADOS)
+
+          echo "------------------------------------------"
+          echo "         RESUMO DA AVALIAÇÃO             "
+          echo "------------------------------------------"
+          echo "Total de fases verificadas: $TOTAL"
+          echo "Passou: $PASSED"
+          echo "Falhou: $REPROVADOS"
+          echo "------------------------------------------"
+
+          # 4. Verificação final para dar o feedback no Pull Request
+          if [ "$REPROVADOS" -gt 0 ]; then
+            echo "Status: REPROVADO - Faltam itens a corrigir."
+            exit 1
+          else
+            echo "Status: APROVADO - Todos os testes passaram!"
+          fi
